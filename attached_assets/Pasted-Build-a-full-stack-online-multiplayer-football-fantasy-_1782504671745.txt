@@ -1,0 +1,151 @@
+Build a full-stack online multiplayer football fantasy game called "World Cup Fantasy Manager" using React + Node.js (or Next.js). Here are the complete specifications:
+
+---
+
+## GAME CONCEPT
+Two players compete by each building a team of 11 players chosen from real World Cup squads (1930–2026), then simulating matches against AI teams and each other.
+
+---
+
+## MULTIPLAYER & LOBBY SYSTEM
+- A player can either:
+  - **Search for opponent**: matchmaking queue
+  - **Create private room**: generates a 6-character share code (e.g. "WC4829")
+  - **Join with code**: enter friend's code to join their room
+- Both players see each other's usernames in the lobby
+- Game starts only when both players are ready
+
+---
+
+## TEAM BUILDING PHASE (Draft Mode)
+
+### How it works:
+1. Player is shown a **randomly selected national team** from any World Cup edition (1930–2026)
+2. Player must pick **one player** from that squad for a **specific position** on the pitch
+3. After picking, a **new random national team** from a different tournament year appears
+4. Player continues until all 11 positions are filled
+5. Player **cannot change a player after selecting them**
+6. Player **cannot place a player in the wrong position** (must match the player's real position)
+
+### Positions to fill (4-3-3 or 4-2-3-1 formation):
+- GK × 1
+- CB × 2
+- LB × 1, RB × 1
+- CDM × 1 (or CM)
+- CM × 2
+- LW × 1, RW × 1
+- ST × 1
+
+### Position rules:
+- GK → only GKs can be placed here
+- CB/LB/RB → only defenders
+- CDM/CM → only midfielders (CDM, CM, CAM count as midfielders)
+- LW/RW/ST → only forwards/attackers
+- The game must enforce this — no exceptions
+
+### Player rating system:
+Each player gets a base rating based on:
+- Tournament performance (goals, assists, clean sheets for GK/DEF)
+- Historical reputation (Pelé, Maradona, Ronaldo, Messi etc. get boosted ratings)
+- Position role weight
+- Era adjustment (earlier eras get slight adjustment for era quality)
+- Rating range: 60–99
+
+---
+
+## TOURNAMENT SIMULATION
+
+### Group Stage Draw:
+After both players finish building their teams, the game auto-generates a group stage:
+- 4 groups of 4 teams each
+- Each group contains:
+  - Player's custom team
+  - 3 randomly drawn **real historical World Cup national teams** (e.g., "Germany 2014", "Brazil 1970")
+- VS player's group also has their custom team + 3 random historical teams
+- Players may end up in the same group or different groups
+
+### Match Simulation:
+- Each match simulates 90 minutes compressed into **30 seconds of real time**
+- Show a live mini-scoreboard that updates with goals as they "happen" during those 30 seconds
+- Match result is calculated based on:
+  - Overall team rating (average of all 11 players)
+  - Tactical bonuses (e.g., balanced formation, era diversity bonus)
+  - Random factor (15–25% variance to simulate upsets)
+  - Home/Away factor (slight boost to higher-rated team)
+
+### Match Display:
+- Show minute-by-minute event tickers (goal scored at 23', yellow card at 45', etc.)
+- Final score + scorers shown
+- Points: Win = 3pts, Draw = 1pt, Loss = 0pt
+
+### Knockout Stage:
+- Top 2 from each group advance
+- Single-elimination: Round of 8 → Semi-finals → Final
+- VS mode: if both players qualify, they are placed in opposite brackets and can meet in the final
+
+### Winner:
+- The player whose custom team wins the tournament is the overall winner
+- If vs mode, whoever reaches the furthest stage wins the head-to-head
+
+---
+
+## DATA REQUIREMENTS
+Include a comprehensive player database covering all World Cup tournaments from **1930 to 2026**, with:
+- Player name (Arabic + English)
+- Nationality
+- World Cup year
+- Position (GK, CB, LB, RB, CDM, CM, CAM, LW, RW, ST)
+- Base rating (60–99)
+
+Key legendary players and their ratings (examples):
+- Pelé (Brazil 1970): ST — 99
+- Diego Maradona (Argentina 1986): CAM — 99
+- Ronaldo Nazário (Brazil 2002): ST — 98
+- Zinedine Zidane (France 1998): CAM — 97
+- Lionel Messi (Argentina 2022): RW — 99
+- Lev Yashin (USSR 1966): GK — 98
+- Franz Beckenbauer (Germany 1974): CB — 97
+- Johan Cruyff (Netherlands 1974): CAM — 98
+- Ronaldo (Portugal 2006): ST — 96
+- Kylian Mbappé (France 2018): ST — 95
+
+---
+
+## UI/UX REQUIREMENTS
+- **Responsive design** (mobile + desktop)
+- **Arabic RTL support** (primary language Arabic, with English fallback)
+- Animated pitch view during team building (show players appearing on a football field graphic)
+- Real-time match ticker animation during simulation
+- Confetti/celebration animation when winning
+- Color scheme: dark background, gold accents (World Cup theme)
+- Flag emojis next to each national team name
+
+---
+
+## TECH STACK SUGGESTION
+- **Frontend**: React + Tailwind CSS
+- **Backend**: Node.js + Express (or Next.js API routes)
+- **Realtime**: Socket.io for vs multiplayer
+- **Database**: SQLite or JSON file for player data
+- **Hosting**: Replit with always-on
+
+---
+
+## SCREENS TO BUILD
+1. **Home screen** — Search opponent / Create room / Join with code
+2. **Lobby** — Show both player names, ready button
+3. **Draft screen** — Show current team formation + random squad to pick from
+4. **My Team** — Full 11-player lineup on pitch graphic
+5. **Tournament Draw** — Show groups with all 4 teams per group
+6. **Match screen** — Live 30-second simulation with ticker
+7. **Standings** — Group table with points
+8. **Knockout bracket** — Visual bracket showing progress
+9. **Winner screen** — Celebration for tournament champion
+
+---
+
+## EXTRA FEATURES (bonus)
+- Player card flip animation when selected
+- Rare "Legend Pack" — 10% chance the random squad is a "Best XI of a tournament" dream team
+- Commentary lines in Arabic that change each match
+- Share result card as image after tournament ends
