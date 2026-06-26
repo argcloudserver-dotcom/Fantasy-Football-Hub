@@ -1,18 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { HISTORICAL_TEAMS, HistoricalTeam, getRandomHistoricalTeams } from '@/data/historicalTeams';
+import { HISTORICAL_TEAMS, getRandomHistoricalTeams } from '@/data/historicalTeams';
 import { Player, generateRandomSquadForPosition } from '@/data/players';
 
 export type GamePhase =
-  | 'home'
-  | 'lobby'
-  | 'draft'
-  | 'team'
-  | 'draw'
-  | 'groupStage'
-  | 'standings'
-  | 'knockout'
-  | 'winner';
+  | 'home' | 'lobby' | 'draft' | 'team' | 'draw'
+  | 'groupStage' | 'standings' | 'knockout' | 'winner';
 
 export type GameMode = 'vsAI' | 'vsPlayer';
 export type PositionType = 'GK' | 'DEF' | 'MID' | 'FWD';
@@ -69,7 +62,7 @@ export interface GroupMatch {
 
 export interface MatchEvent {
   minute: number;
-  type: 'goal' | 'yellowCard' | 'redCard' | 'miss' | 'save';
+  type: 'goal' | 'yellowCard' | 'redCard' | 'miss' | 'save' | 'halftime' | 'substitution' | 'whistle';
   teamId: string;
   description: string;
   descriptionAr: string;
@@ -101,7 +94,6 @@ interface GameState {
   knockoutMatches: KnockoutMatch[];
   currentMatchIndex: number;
   winner: GroupTeam | null;
-  matchLog: string[];
 }
 
 const initialSlots = (): DraftSlot[] => DRAFT_SLOTS.map(s => ({ ...s }));
@@ -120,7 +112,6 @@ const defaultState: GameState = {
   knockoutMatches: [],
   currentMatchIndex: 0,
   winner: null,
-  matchLog: [],
 };
 
 interface GameContextType extends GameState {
@@ -129,9 +120,15 @@ interface GameContextType extends GameState {
   setGameMode: (mode: GameMode) => void;
   startGame: () => void;
   selectPlayerForSlot: (slotId: string, player: Player) => void;
+  selectNextPlayerByPosition: (player: Player) => boolean;
+  isPositionTypeFull: (positionType: PositionType) => boolean;
+  getFilledCountByType: (positionType: PositionType) => number;
+  getTotalSlotsByType: (positionType: PositionType) => number;
   getCurrentSlotIndex: () => number;
   generateAITeam: () => void;
   setupTournament: () => void;
+  simulateAllNonPlayerGroupMatches: () => void;
+  playNextPlayerGroupMatch: () => GroupMatch | null;
   playNextGroupMatch: () => GroupMatch | null;
   advanceToKnockout: () => void;
   playNextKnockoutMatch: () => KnockoutMatch | null;
@@ -141,16 +138,10 @@ interface GameContextType extends GameState {
 
 const GameContext = createContext<GameContextType | null>(null);
 
-function generateId(): string {
-  return Date.now().toString() + Math.random().toString(36).substr(2, 6);
-}
-
 function generateCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = '';
-  for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
-  }
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
   return code;
 }
 
@@ -158,76 +149,6 @@ function getTeamRating(slots: DraftSlot[]): number {
   const players = slots.filter(s => s.player).map(s => s.player!);
   if (players.length === 0) return 75;
   return Math.round(players.reduce((sum, p) => sum + p.rating, 0) / players.length);
-}
-
-const EVENT_DESCRIPTIONS = {
-  goal: [
-    { en: 'GOAL! Stunning finish!', ar: 'هدف! تسديدة رائعة!' },
-    { en: 'GOAL! Into the net!', ar: 'هدف! في الشبكة!' },
-    { en: 'GOAL! What a strike!', ar: 'هدف! يا له من ضربة!' },
-    { en: 'GOAL! Clinical finish!', ar: 'هدف! إنهاء بارع!' },
-  ],
-  yellowCard: [
-    { en: 'Yellow card shown!', ar: 'بطاقة صفراء!' },
-    { en: 'Caution for a foul!', ar: 'إنذار بعد خطأ!' },
-  ],
-  miss: [
-    { en: 'Close! Just wide!', ar: 'قريبة! خارجة قليلاً!' },
-    { en: 'Off the post!', ar: 'على العمود!' },
-    { en: 'Chance goes begging!', ar: 'الفرصة ضائعة!' },
-  ],
-  save: [
-    { en: 'Brilliant save by the keeper!', ar: 'تصدي رائع من الحارس!' },
-    { en: 'What a stop!', ar: 'توقف مذهل!' },
-  ],
-};
-
-function generateMatchEvents(homeTeamId: string, awayTeamId: string, homeGoals: number, awayGoals: number): MatchEvent[] {
-  const events: MatchEvent[] = [];
-  const usedMinutes = new Set<number>();
-
-  function uniqueMinute(min: number, max: number): number {
-    let m = Math.floor(Math.random() * (max - min + 1)) + min;
-    let tries = 0;
-    while (usedMinutes.has(m) && tries < 20) {
-      m = Math.floor(Math.random() * (max - min + 1)) + min;
-      tries++;
-    }
-    usedMinutes.add(m);
-    return m;
-  }
-
-  for (let i = 0; i < homeGoals; i++) {
-    const d = EVENT_DESCRIPTIONS.goal[Math.floor(Math.random() * EVENT_DESCRIPTIONS.goal.length)];
-    events.push({ minute: uniqueMinute(5, 88), type: 'goal', teamId: homeTeamId, description: d.en, descriptionAr: d.ar });
-  }
-  for (let i = 0; i < awayGoals; i++) {
-    const d = EVENT_DESCRIPTIONS.goal[Math.floor(Math.random() * EVENT_DESCRIPTIONS.goal.length)];
-    events.push({ minute: uniqueMinute(5, 88), type: 'goal', teamId: awayTeamId, description: d.en, descriptionAr: d.ar });
-  }
-
-  const cards = Math.floor(Math.random() * 3);
-  for (let i = 0; i < cards; i++) {
-    const d = EVENT_DESCRIPTIONS.yellowCard[Math.floor(Math.random() * EVENT_DESCRIPTIONS.yellowCard.length)];
-    const team = Math.random() < 0.5 ? homeTeamId : awayTeamId;
-    events.push({ minute: uniqueMinute(20, 85), type: 'yellowCard', teamId: team, description: d.en, descriptionAr: d.ar });
-  }
-
-  const misses = Math.floor(Math.random() * 3) + 1;
-  for (let i = 0; i < misses; i++) {
-    const d = EVENT_DESCRIPTIONS.miss[Math.floor(Math.random() * EVENT_DESCRIPTIONS.miss.length)];
-    const team = Math.random() < 0.5 ? homeTeamId : awayTeamId;
-    events.push({ minute: uniqueMinute(10, 85), type: 'miss', teamId: team, description: d.en, descriptionAr: d.ar });
-  }
-
-  const saves = Math.floor(Math.random() * 2) + 1;
-  for (let i = 0; i < saves; i++) {
-    const d = EVENT_DESCRIPTIONS.save[Math.floor(Math.random() * EVENT_DESCRIPTIONS.save.length)];
-    const team = Math.random() < 0.5 ? homeTeamId : awayTeamId;
-    events.push({ minute: uniqueMinute(10, 85), type: 'save', teamId: team, description: d.en, descriptionAr: d.ar });
-  }
-
-  return events.sort((a, b) => a.minute - b.minute);
 }
 
 function simulateMatch(homeRating: number, awayRating: number): { homeGoals: number; awayGoals: number } {
@@ -240,6 +161,128 @@ function simulateMatch(homeRating: number, awayRating: number): { homeGoals: num
   return { homeGoals, awayGoals };
 }
 
+function generateMatchEventsWithNames(
+  homeTeamId: string, awayTeamId: string,
+  homeGoals: number, awayGoals: number,
+  homeTeamName: string, awayTeamName: string,
+  homePlayerNames: string[] = [], awayPlayerNames: string[] = []
+): MatchEvent[] {
+  const events: MatchEvent[] = [];
+  const usedMinutes = new Set<number>([45, 90]);
+
+  function uniqueMinute(min: number, max: number): number {
+    let m = Math.floor(Math.random() * (max - min + 1)) + min;
+    let tries = 0;
+    while (usedMinutes.has(m) && tries < 30) {
+      m = Math.floor(Math.random() * (max - min + 1)) + min;
+      tries++;
+    }
+    usedMinutes.add(m);
+    return m;
+  }
+
+  function pickName(names: string[], fallback: string): string {
+    if (names.length > 0) return names[Math.floor(Math.random() * names.length)].split(' ').slice(-1)[0];
+    return fallback;
+  }
+
+  // Goals first half
+  let homeHalf1 = 0, homeHalf2 = 0, awayHalf1 = 0, awayHalf2 = 0;
+  for (let i = 0; i < homeGoals; i++) { Math.random() < 0.4 ? homeHalf1++ : homeHalf2++; }
+  for (let i = 0; i < awayGoals; i++) { Math.random() < 0.4 ? awayHalf1++ : awayHalf2++; }
+
+  // First half goals
+  for (let i = 0; i < homeHalf1; i++) {
+    const scorer = pickName(homePlayerNames, homeTeamName);
+    const min = uniqueMinute(5, 44);
+    events.push({ minute: min, type: 'goal', teamId: homeTeamId, description: `⚽ Goal! ${scorer} scores for ${homeTeamName}!`, descriptionAr: `⚽ هدف! ${homeTeamName} يسجل!` });
+  }
+  for (let i = 0; i < awayHalf1; i++) {
+    const scorer = pickName(awayPlayerNames, awayTeamName);
+    const min = uniqueMinute(5, 44);
+    events.push({ minute: min, type: 'goal', teamId: awayTeamId, description: `⚽ Goal! ${scorer} scores for ${awayTeamName}!`, descriptionAr: `⚽ هدف! ${awayTeamName} يسجل!` });
+  }
+
+  // Half time
+  const htHome = homeHalf1;
+  const htAway = awayHalf1;
+  events.push({ minute: 45, type: 'halftime', teamId: 'system', description: `⏱ Half Time — ${homeTeamName} ${htHome}–${htAway} ${awayTeamName}`, descriptionAr: `⏱ نهاية الشوط الأول — ${htHome}–${htAway}` });
+
+  // Second half goals
+  for (let i = 0; i < homeHalf2; i++) {
+    const scorer = pickName(homePlayerNames, homeTeamName);
+    const min = uniqueMinute(46, 88);
+    events.push({ minute: min, type: 'goal', teamId: homeTeamId, description: `⚽ Goal! ${scorer} scores for ${homeTeamName}!`, descriptionAr: `⚽ هدف! ${homeTeamName} يسجل!` });
+  }
+  for (let i = 0; i < awayHalf2; i++) {
+    const scorer = pickName(awayPlayerNames, awayTeamName);
+    const min = uniqueMinute(46, 88);
+    events.push({ minute: min, type: 'goal', teamId: awayTeamId, description: `⚽ Goal! ${scorer} scores for ${awayTeamName}!`, descriptionAr: `⚽ هدف! ${awayTeamName} يسجل!` });
+  }
+
+  // Cards
+  const cards = Math.floor(Math.random() * 3);
+  for (let i = 0; i < cards; i++) {
+    const isHome = Math.random() < 0.5;
+    const name = isHome ? pickName(homePlayerNames, homeTeamName) : pickName(awayPlayerNames, awayTeamName);
+    events.push({ minute: uniqueMinute(20, 85), type: 'yellowCard', teamId: isHome ? homeTeamId : awayTeamId, description: `🟨 Yellow card for ${name}`, descriptionAr: `🟨 بطاقة صفراء لـ ${name}` });
+  }
+
+  // Red card (10% chance)
+  if (Math.random() < 0.10) {
+    const isHome = Math.random() < 0.5;
+    const teamName = isHome ? homeTeamName : awayTeamName;
+    events.push({ minute: uniqueMinute(55, 85), type: 'redCard', teamId: isHome ? homeTeamId : awayTeamId, description: `🔴 Red card! ${teamName} down to 10 men`, descriptionAr: `🔴 بطاقة حمراء! ${teamName} بـ 10 لاعبين` });
+  }
+
+  // Substitution
+  events.push({ minute: uniqueMinute(55, 75), type: 'substitution', teamId: Math.random() < 0.5 ? homeTeamId : awayTeamId, description: `🔄 Substitution`, descriptionAr: `🔄 تغيير لاعب` });
+
+  // Misses
+  const misses = Math.floor(Math.random() * 2) + 1;
+  for (let i = 0; i < misses; i++) {
+    const isHome = Math.random() < 0.5;
+    const name = isHome ? pickName(homePlayerNames, homeTeamName) : pickName(awayPlayerNames, awayTeamName);
+    events.push({ minute: uniqueMinute(10, 85), type: 'miss', teamId: isHome ? homeTeamId : awayTeamId, description: `❌ ${name} goes close! Just wide!`, descriptionAr: `❌ ${name} يضيع فرصة!` });
+  }
+
+  // Saves
+  if (Math.random() < 0.6) {
+    events.push({ minute: uniqueMinute(15, 85), type: 'save', teamId: Math.random() < 0.5 ? homeTeamId : awayTeamId, description: `🧤 Brilliant save by the goalkeeper!`, descriptionAr: `🧤 تصدي رائع من الحارس!` });
+  }
+
+  // Full time
+  events.push({ minute: 90, type: 'whistle', teamId: 'system', description: `⚡ Full Time — ${homeTeamName} ${homeGoals}–${awayGoals} ${awayTeamName}`, descriptionAr: `⚡ نهاية المباراة — ${homeGoals}–${awayGoals}` });
+
+  return events.sort((a, b) => a.minute - b.minute);
+}
+
+// Simpler events for AI vs AI matches (not shown to player)
+function generateSimpleEvents(homeTeamId: string, awayTeamId: string, homeGoals: number, awayGoals: number): MatchEvent[] {
+  return [
+    { minute: 45, type: 'halftime', teamId: 'system', description: 'Half Time', descriptionAr: 'نهاية الشوط الأول' },
+    { minute: 90, type: 'whistle', teamId: 'system', description: 'Full Time', descriptionAr: 'نهاية المباراة' },
+  ];
+}
+
+function applyMatchToGroups(groups: GroupTeam[][], match: GroupMatch, homeGoals: number, awayGoals: number): GroupTeam[][] {
+  return groups.map(group => group.map(team => {
+    if (team.id === match.homeTeamId) {
+      const w = homeGoals > awayGoals ? 1 : 0;
+      const d = homeGoals === awayGoals ? 1 : 0;
+      const l = homeGoals < awayGoals ? 1 : 0;
+      return { ...team, played: team.played + 1, won: team.won + w, drawn: team.drawn + d, lost: team.lost + l, gf: team.gf + homeGoals, ga: team.ga + awayGoals, points: team.points + (w * 3 + d) };
+    }
+    if (team.id === match.awayTeamId) {
+      const w = awayGoals > homeGoals ? 1 : 0;
+      const d = homeGoals === awayGoals ? 1 : 0;
+      const l = awayGoals < homeGoals ? 1 : 0;
+      return { ...team, played: team.played + 1, won: team.won + w, drawn: team.drawn + d, lost: team.lost + l, gf: team.gf + awayGoals, ga: team.ga + homeGoals, points: team.points + (w * 3 + d) };
+    }
+    return team;
+  }));
+}
+
 export function GameProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<GameState>(defaultState);
 
@@ -249,18 +292,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const setPhase = useCallback((phase: GamePhase) => {
-    setState(s => ({ ...s, phase }));
-  }, []);
+  const setPhase = useCallback((phase: GamePhase) => setState(s => ({ ...s, phase })), []);
 
   const setPlayerName = useCallback((name: string) => {
     setState(s => ({ ...s, playerName: name }));
     AsyncStorage.setItem('wcfm_playerName', name);
   }, []);
 
-  const setGameMode = useCallback((mode: GameMode) => {
-    setState(s => ({ ...s, gameMode: mode }));
-  }, []);
+  const setGameMode = useCallback((mode: GameMode) => setState(s => ({ ...s, gameMode: mode })), []);
 
   const generateRoomCode = useCallback((): string => {
     const code = generateCode();
@@ -270,16 +309,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   const startGame = useCallback(() => {
     setState(s => ({
-      ...s,
-      myTeamSlots: initialSlots(),
-      opponentTeamSlots: initialSlots(),
-      groups: [],
-      groupMatches: [],
-      knockoutTeams: [],
-      knockoutMatches: [],
-      currentMatchIndex: 0,
-      winner: null,
-      phase: 'draft',
+      ...s, myTeamSlots: initialSlots(), opponentTeamSlots: initialSlots(),
+      groups: [], groupMatches: [], knockoutTeams: [], knockoutMatches: [],
+      currentMatchIndex: 0, winner: null, phase: 'draft',
     }));
   }, []);
 
@@ -288,21 +320,45 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, [state.myTeamSlots]);
 
   const selectPlayerForSlot = useCallback((slotId: string, player: Player) => {
-    setState(s => {
-      const updated = s.myTeamSlots.map(slot =>
-        slot.id === slotId ? { ...slot, player } : slot
-      );
-      return { ...s, myTeamSlots: updated };
-    });
+    setState(s => ({
+      ...s,
+      myTeamSlots: s.myTeamSlots.map(slot => slot.id === slotId ? { ...slot, player } : slot),
+    }));
   }, []);
+
+  // New: fill next empty slot of matching position type, returns true if successful
+  const selectNextPlayerByPosition = useCallback((player: Player): boolean => {
+    let success = false;
+    setState(s => {
+      const nextSlot = s.myTeamSlots.find(slot => !slot.player && slot.positionType === player.positionType);
+      if (!nextSlot) return s;
+      success = true;
+      return {
+        ...s,
+        myTeamSlots: s.myTeamSlots.map(slot => slot.id === nextSlot.id ? { ...slot, player } : slot),
+      };
+    });
+    return success;
+  }, []);
+
+  const isPositionTypeFull = useCallback((positionType: PositionType): boolean => {
+    return state.myTeamSlots.filter(s => s.positionType === positionType).every(s => !!s.player);
+  }, [state.myTeamSlots]);
+
+  const getFilledCountByType = useCallback((positionType: PositionType): number => {
+    return state.myTeamSlots.filter(s => s.positionType === positionType && !!s.player).length;
+  }, [state.myTeamSlots]);
+
+  const getTotalSlotsByType = useCallback((positionType: PositionType): number => {
+    return state.myTeamSlots.filter(s => s.positionType === positionType).length;
+  }, [state.myTeamSlots]);
 
   const generateAITeam = useCallback(() => {
     setState(s => {
       const aiSlots = DRAFT_SLOTS.map(slot => {
         const squad = generateRandomSquadForPosition(slot.positionType);
-        const eligible = squad.players;
-        const player = eligible.length > 0
-          ? eligible[Math.floor(Math.random() * eligible.length)]
+        const player = squad.players.length > 0
+          ? squad.players[Math.floor(Math.random() * squad.players.length)]
           : undefined;
         return { ...slot, player };
       });
@@ -316,37 +372,20 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       const opponentTeamRating = getTeamRating(s.opponentTeamSlots);
 
       const playerTeam: GroupTeam = {
-        id: 'player',
-        name: `${s.playerName || 'You'}'s XI`,
-        nameAr: `فريق ${s.playerName || 'اللاعب'}`,
-        flag: '⭐',
-        rating: playerTeamRating,
-        isPlayer: true,
-        isOpponent: false,
+        id: 'player', name: `${s.playerName || 'You'}'s XI`, nameAr: `فريق ${s.playerName || 'اللاعب'}`,
+        flag: '⭐', rating: playerTeamRating, isPlayer: true, isOpponent: false,
         points: 0, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0,
       };
-
       const opponentTeam: GroupTeam = {
-        id: 'opponent',
-        name: `${s.opponentName}'s XI`,
-        nameAr: `فريق ${s.opponentName}`,
-        flag: '🤖',
-        rating: opponentTeamRating,
-        isPlayer: false,
-        isOpponent: true,
+        id: 'opponent', name: `${s.opponentName}'s XI`, nameAr: `فريق ${s.opponentName}`,
+        flag: '🤖', rating: opponentTeamRating, isPlayer: false, isOpponent: true,
         points: 0, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0,
       };
 
       const historicals = getRandomHistoricalTeams(14);
       const histTeams: GroupTeam[] = historicals.map(ht => ({
-        id: ht.id,
-        name: ht.name,
-        nameAr: ht.nameAr,
-        flag: ht.flag,
-        rating: ht.rating,
-        isPlayer: false,
-        isOpponent: false,
-        points: 0, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0,
+        id: ht.id, name: ht.name, nameAr: ht.nameAr, flag: ht.flag, rating: ht.rating,
+        isPlayer: false, isOpponent: false, points: 0, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0,
       }));
 
       const groups: GroupTeam[][] = [
@@ -361,64 +400,98 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         for (let i = 0; i < group.length; i++) {
           for (let j = i + 1; j < group.length; j++) {
             groupMatches.push({
-              homeTeamId: group[i].id,
-              awayTeamId: group[j].id,
-              homeGoals: 0,
-              awayGoals: 0,
-              played: false,
-              events: [],
-              groupIndex: gIdx,
+              homeTeamId: group[i].id, awayTeamId: group[j].id,
+              homeGoals: 0, awayGoals: 0, played: false, events: [], groupIndex: gIdx,
             });
           }
         }
       });
 
-      return {
-        ...s,
-        groups,
-        groupMatches,
-        currentMatchIndex: 0,
-        phase: 'draw',
-      };
+      return { ...s, groups, groupMatches, currentMatchIndex: 0, phase: 'draw' };
     });
   }, []);
 
-  const playNextGroupMatch = useCallback((): GroupMatch | null => {
+  // Silently simulates all AI-vs-AI group matches in one shot
+  const simulateAllNonPlayerGroupMatches = useCallback(() => {
+    setState(s => {
+      let newGroups = s.groups.map(g => [...g]);
+      const newMatches = s.groupMatches.map(match => {
+        if (match.played) return match;
+        if (match.homeTeamId === 'player' || match.awayTeamId === 'player') return match;
+        if (match.homeTeamId === 'opponent' || match.awayTeamId === 'opponent') {
+          // Also play opponent matches silently
+        }
+        const allTeams = newGroups.flat();
+        const home = allTeams.find(t => t.id === match.homeTeamId);
+        const away = allTeams.find(t => t.id === match.awayTeamId);
+        if (!home || !away) return match;
+        const { homeGoals, awayGoals } = simulateMatch(home.rating, away.rating);
+        newGroups = applyMatchToGroups(newGroups, match, homeGoals, awayGoals);
+        return { ...match, homeGoals, awayGoals, played: true, events: generateSimpleEvents(match.homeTeamId, match.awayTeamId, homeGoals, awayGoals) };
+      });
+      return { ...s, groupMatches: newMatches, groups: newGroups };
+    });
+  }, []);
+
+  // Plays the next player-involved group match with full rich events
+  const playNextPlayerGroupMatch = useCallback((): GroupMatch | null => {
     let result: GroupMatch | null = null;
     setState(s => {
-      const unplayed = s.groupMatches.findIndex(m => !m.played);
-      if (unplayed === -1) return s;
+      const nextIdx = s.groupMatches.findIndex(m =>
+        !m.played && (m.homeTeamId === 'player' || m.awayTeamId === 'player')
+      );
+      if (nextIdx === -1) return s;
 
-      const match = s.groupMatches[unplayed];
+      const match = s.groupMatches[nextIdx];
       const allTeams = s.groups.flat();
       const home = allTeams.find(t => t.id === match.homeTeamId);
       const away = allTeams.find(t => t.id === match.awayTeamId);
       if (!home || !away) return s;
 
       const { homeGoals, awayGoals } = simulateMatch(home.rating, away.rating);
-      const events = generateMatchEvents(home.id, away.id, homeGoals, awayGoals);
+
+      // Get player names for event descriptions
+      const homePlayerNames = match.homeTeamId === 'player'
+        ? s.myTeamSlots.filter(sl => sl.player).map(sl => sl.player!.name)
+        : match.homeTeamId === 'opponent'
+          ? s.opponentTeamSlots.filter(sl => sl.player).map(sl => sl.player!.name)
+          : [];
+      const awayPlayerNames = match.awayTeamId === 'player'
+        ? s.myTeamSlots.filter(sl => sl.player).map(sl => sl.player!.name)
+        : match.awayTeamId === 'opponent'
+          ? s.opponentTeamSlots.filter(sl => sl.player).map(sl => sl.player!.name)
+          : [];
+
+      const events = generateMatchEventsWithNames(
+        match.homeTeamId, match.awayTeamId, homeGoals, awayGoals,
+        home.name, away.name, homePlayerNames, awayPlayerNames
+      );
       const played: GroupMatch = { ...match, homeGoals, awayGoals, played: true, events };
       result = played;
 
-      const newMatches = s.groupMatches.map((m, i) => i === unplayed ? played : m);
-
-      const newGroups = s.groups.map(group => group.map(team => {
-        if (team.id === match.homeTeamId) {
-          const w = homeGoals > awayGoals ? 1 : 0;
-          const d = homeGoals === awayGoals ? 1 : 0;
-          const l = homeGoals < awayGoals ? 1 : 0;
-          return { ...team, played: team.played + 1, won: team.won + w, drawn: team.drawn + d, lost: team.lost + l, gf: team.gf + homeGoals, ga: team.ga + awayGoals, points: team.points + (w * 3 + d) };
-        }
-        if (team.id === match.awayTeamId) {
-          const w = awayGoals > homeGoals ? 1 : 0;
-          const d = homeGoals === awayGoals ? 1 : 0;
-          const l = awayGoals < homeGoals ? 1 : 0;
-          return { ...team, played: team.played + 1, won: team.won + w, drawn: team.drawn + d, lost: team.lost + l, gf: team.gf + awayGoals, ga: team.ga + homeGoals, points: team.points + (w * 3 + d) };
-        }
-        return team;
-      }));
-
+      const newMatches = s.groupMatches.map((m, i) => i === nextIdx ? played : m);
+      const newGroups = applyMatchToGroups(s.groups, match, homeGoals, awayGoals);
       return { ...s, groupMatches: newMatches, groups: newGroups };
+    });
+    return result;
+  }, []);
+
+  // Legacy: plays any next unplayed match
+  const playNextGroupMatch = useCallback((): GroupMatch | null => {
+    let result: GroupMatch | null = null;
+    setState(s => {
+      const unplayed = s.groupMatches.findIndex(m => !m.played);
+      if (unplayed === -1) return s;
+      const match = s.groupMatches[unplayed];
+      const allTeams = s.groups.flat();
+      const home = allTeams.find(t => t.id === match.homeTeamId);
+      const away = allTeams.find(t => t.id === match.awayTeamId);
+      if (!home || !away) return s;
+      const { homeGoals, awayGoals } = simulateMatch(home.rating, away.rating);
+      const events = generateSimpleEvents(match.homeTeamId, match.awayTeamId, homeGoals, awayGoals);
+      const played: GroupMatch = { ...match, homeGoals, awayGoals, played: true, events };
+      result = played;
+      return { ...s, groupMatches: s.groupMatches.map((m, i) => i === unplayed ? played : m), groups: applyMatchToGroups(s.groups, match, homeGoals, awayGoals) };
     });
     return result;
   }, []);
@@ -448,11 +521,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const playNextKnockoutMatch = useCallback((): KnockoutMatch | null => {
     let result: KnockoutMatch | null = null;
     setState(s => {
-      const allTeams = [...s.groups.flat(), ...HISTORICAL_TEAMS.map(ht => ({
-        id: ht.id, name: ht.name, nameAr: ht.nameAr, flag: ht.flag, rating: ht.rating,
-        isPlayer: false, isOpponent: false, points: 0, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0,
-      }))];
-
+      const allTeams: GroupTeam[] = [
+        ...s.groups.flat(),
+        ...HISTORICAL_TEAMS.map(ht => ({
+          id: ht.id, name: ht.name, nameAr: ht.nameAr, flag: ht.flag, rating: ht.rating,
+          isPlayer: false, isOpponent: false, points: 0, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0,
+        })),
+      ];
       const getTeam = (id: string) => allTeams.find(t => t.id === id) ?? s.knockoutTeams.find(t => t.id === id);
 
       const unplayedIdx = s.knockoutMatches.findIndex(m => !m.played);
@@ -464,22 +539,21 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       if (!home || !away) return s;
 
       let { homeGoals, awayGoals } = simulateMatch(home.rating, away.rating);
-      if (homeGoals === awayGoals) {
-        Math.random() < 0.5 ? homeGoals++ : awayGoals++;
-      }
+      if (homeGoals === awayGoals) { Math.random() < 0.5 ? homeGoals++ : awayGoals++; }
+
+      const homePlayerNames = match.homeTeamId === 'player' ? s.myTeamSlots.filter(sl => sl.player).map(sl => sl.player!.name) : [];
+      const awayPlayerNames = match.awayTeamId === 'player' ? s.myTeamSlots.filter(sl => sl.player).map(sl => sl.player!.name) : [];
+      const events = generateMatchEventsWithNames(match.homeTeamId, match.awayTeamId, homeGoals, awayGoals, home.name, away.name, homePlayerNames, awayPlayerNames);
+
       const winnerId = homeGoals > awayGoals ? match.homeTeamId : match.awayTeamId;
-      const events = generateMatchEvents(home.id, away.id, homeGoals, awayGoals);
       const played: KnockoutMatch = { ...match, homeGoals, awayGoals, played: true, events, winnerId };
       result = played;
 
       const newKO = s.knockoutMatches.map((m, i) => i === unplayedIdx ? played : m);
-
       const playedQFs = newKO.filter(m => m.round === 'QF' && m.played);
       const playedSFs = newKO.filter(m => m.round === 'SF' && m.played);
-      const playedFs = newKO.filter(m => m.round === 'F' && m.played);
 
       let finalMatches = [...newKO];
-
       if (playedQFs.length === 4 && !newKO.some(m => m.round === 'SF')) {
         const qfWinners = playedQFs.map(m => m.winnerId!);
         finalMatches = [...newKO,
@@ -487,7 +561,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           { round: 'SF' as const, matchIndex: 1, homeTeamId: qfWinners[2], awayTeamId: qfWinners[3], played: false, events: [] },
         ];
       }
-
       if (playedSFs.length === 2 && !newKO.some(m => m.round === 'F')) {
         const sfWinners = playedSFs.map(m => m.winnerId!);
         finalMatches = [...finalMatches,
@@ -496,12 +569,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
 
       let winner = s.winner;
-      if (playedFs.length === 1 || (match.round === 'F' && played.played)) {
-        const finalMatch = finalMatches.find(m => m.round === 'F' && m.played);
-        if (finalMatch?.winnerId) {
-          const winnerTeam = allTeams.find(t => t.id === finalMatch.winnerId) ?? s.knockoutTeams.find(t => t.id === finalMatch.winnerId);
-          winner = winnerTeam ?? null;
-        }
+      const finalMatch = finalMatches.find(m => m.round === 'F' && m.played);
+      if (finalMatch?.winnerId) {
+        winner = allTeams.find(t => t.id === finalMatch.winnerId) ?? s.knockoutTeams.find(t => t.id === finalMatch.winnerId) ?? null;
       }
 
       return { ...s, knockoutMatches: finalMatches, winner };
@@ -515,19 +585,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   const value: GameContextType = {
     ...state,
-    setPhase,
-    setPlayerName,
-    setGameMode,
-    startGame,
-    selectPlayerForSlot,
-    getCurrentSlotIndex,
-    generateAITeam,
-    setupTournament,
-    playNextGroupMatch,
-    advanceToKnockout,
-    playNextKnockoutMatch,
-    resetGame,
-    generateRoomCode,
+    setPhase, setPlayerName, setGameMode, startGame,
+    selectPlayerForSlot, selectNextPlayerByPosition,
+    isPositionTypeFull, getFilledCountByType, getTotalSlotsByType,
+    getCurrentSlotIndex, generateAITeam, setupTournament,
+    simulateAllNonPlayerGroupMatches, playNextPlayerGroupMatch, playNextGroupMatch,
+    advanceToKnockout, playNextKnockoutMatch, resetGame, generateRoomCode,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

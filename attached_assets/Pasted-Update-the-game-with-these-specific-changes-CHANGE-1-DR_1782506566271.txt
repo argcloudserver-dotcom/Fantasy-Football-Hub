@@ -1,0 +1,85 @@
+Update the game with these specific changes:
+
+## CHANGE 1 — DRAFT / TEAM BUILDING SYSTEM (Full overhaul)
+
+The current system is WRONG. Replace it completely with this:
+
+### How drafting works:
+1. Show the player a FULL squad of a RANDOMLY selected national team from any World Cup year (1930–2026)
+   - Display: team name, year, and ALL players in the squad in a list
+   - Each player shows: name, position (GK / DEF / MID / FWD)
+
+2. The player CLICKS on any player from that list to add them to their team
+   - The player's real position determines which slot it fills in the formation
+   - Example: clicking Pelé (FWD) fills the next empty FWD slot
+   - Example: clicking Beckenbauer (DEF) fills the next empty DEF slot
+
+3. After selecting, a NEW random national team appears (different country/year)
+   - The player picks ANOTHER player from that team
+   - BUT: they CANNOT pick a player whose position is already fully filled
+   - Example: if all 3 FWD slots are taken, FWD players in the next squad are GREYED OUT and unselectable
+   - The player MUST pick from the available (unfilled) positions
+
+4. Repeat until all 11 slots are filled:
+   - GK × 1
+   - DEF × 4 (CB × 2, LB × 1, RB × 1)
+   - MID × 4 (CDM × 1, CM × 2, CAM × 1)  
+   - FWD × 2 (LW × 1 or RW × 1, ST × 1)
+   (or use 4-3-3: GK, 4 DEF, 3 MID, 3 FWD)
+
+5. Rules:
+   - Cannot change a player after selecting
+   - Greyed-out players = position already full — cannot be selected
+   - The same team can appear again (it's random each time)
+   - Show the current team formation on the side updating in real time as picks are made
+
+### UI for draft screen:
+- LEFT side: current formation (football pitch view, updating live)
+- RIGHT side: current random squad list (scrollable, greyed items for filled positions)
+- Show which positions still need filling at the top
+
+---
+
+## CHANGE 2 — MATCH SIMULATION (timing + display)
+
+### Timing:
+- Each match simulates in exactly 30 seconds of real time
+- Show a countdown timer during the match
+
+### Match events display:
+During the 30 seconds, show a live ticker that lists events as they "happen":
+- ⚽ Goal — e.g. "23' — Goal! Pelé scores for your team! 1-0"
+- 🟡 Yellow card — e.g. "45' — Yellow card for Beckenbauer"
+- 🔴 Red card — e.g. "67' — Red card! Opposition down to 10 men"
+- 🔄 Substitution
+- ⏱ Half time — "Half time: Your Team 1 — 0 Germany 1974"
+- Final whistle with full result
+
+### Scoreboard:
+- Update the score in real time as events happen during the 30 seconds
+- Show: YOUR TEAM vs OPPONENT — with live score updating
+
+---
+
+## CHANGE 3 — GROUP STAGE VIEW (show only MY matches)
+
+The current group view shows ALL matches. Change it so:
+
+- In the group stage screen, show ONLY the matches involving the player's own team
+- The player has 3 matches in the group stage (against each other team in their group)
+- Show results as they complete: won ✓ / lost ✗ / upcoming
+- Show a mini standings table ONLY for their group (all 4 teams, with points)
+- Do NOT auto-play or display the other groups' matches unless the player taps "View all results"
+
+### Match list example (what to show):
+Your Group — Group A
+1. ✅ Your Team 2–1 Brazil 1970  [PLAYED]
+2. 🕐 Your Team vs Germany 2014  [UPCOMING]
+3. 🔒 Your Team vs Argentina 1986 [UPCOMING]
+
+[Group A standings table below — all 4 teams]
+[Button: "View all group results" → shows everything]
+
+---
+
+Keep all other existing features as they are. Only change the three systems described above.
