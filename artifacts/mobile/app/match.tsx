@@ -15,8 +15,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GroupMatch, GroupTeam, MatchEvent, useGame } from '@/context/GameContext';
 import { useColors } from '@/hooks/useColors';
 
-const MATCH_DURATION_MS = 30000;
+const MATCH_DURATION_MS = 5000;
 const GROUP_LETTERS = ['A', 'B', 'C', 'D'];
+
+type MatchPhase = 'idle' | 'live' | 'complete';
 
 export default function MatchScreen() {
   const colors = useColors();
@@ -29,26 +31,22 @@ export default function MatchScreen() {
     advanceToKnockout,
   } = useGame();
 
-  // State
-  const [aiSimulated, setAiSimulated] = useState(false);
+  const [matchPhase, setMatchPhase] = useState<MatchPhase>('idle');
   const [activeMatch, setActiveMatch] = useState<GroupMatch | null>(null);
-  const [isSimulating, setIsSimulating] = useState(false);
   const [visibleEvents, setVisibleEvents] = useState<MatchEvent[]>([]);
   const [liveMinute, setLiveMinute] = useState(0);
-  const [countdown, setCountdown] = useState(30);
+  const [countdown, setCountdown] = useState(5);
   const [liveHomeGoals, setLiveHomeGoals] = useState(0);
   const [liveAwayGoals, setLiveAwayGoals] = useState(0);
   const [showAllResults, setShowAllResults] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const allTeams: GroupTeam[] = groups.flat();
   const getTeam = (id: string) => allTeams.find(t => t.id === id);
 
-  // Player's group (group 0 = player's group)
-  const playerGroup = groups[0] ?? [];
   const playerGroupIndex = 0;
-
-  // All group matches
+  const playerGroup = groups[0] ?? [];
   const playerGroupMatches = groupMatches.filter(m => m.groupIndex === playerGroupIndex);
   const playerOwnMatches = groupMatches.filter(
     m => m.homeTeamId === 'player' || m.awayTeamId === 'player'
@@ -57,12 +55,22 @@ export default function MatchScreen() {
 
   // Simulate AI matches on mount
   useEffect(() => {
-    const t = setTimeout(() => {
-      simulateAllNonPlayerGroupMatches();
-      setAiSimulated(true);
-    }, 100);
+    const t = setTimeout(() => simulateAllNonPlayerGroupMatches(), 100);
     return () => clearTimeout(t);
   }, []);
+
+  // Pulse animation for LIVE label
+  useEffect(() => {
+    if (matchPhase !== 'live') return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.4, duration: 600, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [matchPhase]);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -74,7 +82,7 @@ export default function MatchScreen() {
   useEffect(() => () => stopTimer(), []);
 
   const handlePlayMatch = useCallback(() => {
-    if (isSimulating) return;
+    if (matchPhase === 'live') return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const match = playNextPlayerGroupMatch();
@@ -83,10 +91,10 @@ export default function MatchScreen() {
     setActiveMatch(match);
     setVisibleEvents([]);
     setLiveMinute(0);
-    setCountdown(30);
+    setCountdown(5);
     setLiveHomeGoals(0);
     setLiveAwayGoals(0);
-    setIsSimulating(true);
+    setMatchPhase('live');
 
     const events = match.events;
     const startTime = Date.now();
@@ -103,7 +111,6 @@ export default function MatchScreen() {
       const nowEvents = events.filter(e => e.minute <= minute);
       setVisibleEvents(nowEvents);
 
-      // Live score = count goals so far
       const hg = nowEvents.filter(e => e.type === 'goal' && e.teamId === match.homeTeamId).length;
       const ag = nowEvents.filter(e => e.type === 'goal' && e.teamId === match.awayTeamId).length;
       setLiveHomeGoals(hg);
@@ -116,11 +123,18 @@ export default function MatchScreen() {
         setVisibleEvents(events);
         setLiveHomeGoals(match.homeGoals);
         setLiveAwayGoals(match.awayGoals);
-        setIsSimulating(false);
+        setMatchPhase('complete');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-    }, 100);
-  }, [isSimulating, playNextPlayerGroupMatch, stopTimer]);
+    }, 50);
+  }, [matchPhase, playNextPlayerGroupMatch, stopTimer]);
+
+  const handlePlayNext = useCallback(() => {
+    setMatchPhase('idle');
+    setActiveMatch(null);
+    setVisibleEvents([]);
+    setTimeout(() => handlePlayMatch(), 100);
+  }, [handlePlayMatch]);
 
   const handleAdvance = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -142,7 +156,6 @@ export default function MatchScreen() {
     }
   };
 
-  // Sorted group standings
   const sortedGroup = [...playerGroup].sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     return (b.gf - b.ga) - (a.gf - a.ga);
@@ -169,16 +182,20 @@ export default function MatchScreen() {
           {playerOwnMatches.map((match, idx) => {
             const home = getTeam(match.homeTeamId);
             const away = getTeam(match.awayTeamId);
-            const isActive = activeMatch?.homeTeamId === match.homeTeamId && activeMatch?.awayTeamId === match.awayTeamId;
+            const isActive = matchPhase !== 'idle' && activeMatch?.homeTeamId === match.homeTeamId && activeMatch?.awayTeamId === match.awayTeamId;
             const isPlayed = match.played;
+            const playerWon = match.played && (match.homeTeamId === 'player' ? match.homeGoals > match.awayGoals : match.awayGoals > match.homeGoals);
+            const playerDraw = match.played && match.homeGoals === match.awayGoals;
 
             return (
               <View key={idx} style={[styles.matchRow, { borderTopColor: colors.border, borderTopWidth: idx > 0 ? 1 : 0 }]}>
                 <View style={styles.matchStatus}>
                   {isPlayed ? (
-                    <Text style={{ fontSize: 18 }}>
-                      {(match.homeTeamId === 'player' ? match.homeGoals > match.awayGoals : match.awayGoals > match.homeGoals) ? '✅' : (match.homeGoals === match.awayGoals ? '🟡' : '❌')}
-                    </Text>
+                    <View style={[styles.resultBadge, { backgroundColor: playerWon ? colors.success + '22' : playerDraw ? '#88888822' : colors.destructive + '22' }]}>
+                      <Text style={[styles.resultBadgeText, { color: playerWon ? colors.success : playerDraw ? colors.mutedForeground : colors.destructive }]}>
+                        {playerWon ? 'W' : playerDraw ? 'D' : 'L'}
+                      </Text>
+                    </View>
                   ) : (
                     <Ionicons name="time" size={18} color={colors.mutedForeground} />
                   )}
@@ -187,19 +204,15 @@ export default function MatchScreen() {
                   <View style={styles.matchTeamLine}>
                     <Text style={styles.matchFlag}>{home?.flag ?? '⭐'}</Text>
                     <Text style={[styles.matchTeamName, { color: colors.foreground }]} numberOfLines={1}>{home?.name ?? '...'}</Text>
-                    {isPlayed && (
-                      <Text style={[styles.matchGoal, { color: colors.primary }]}>{match.homeGoals}</Text>
-                    )}
+                    {isPlayed && <Text style={[styles.matchGoal, { color: colors.primary }]}>{match.homeGoals}</Text>}
                   </View>
                   <View style={styles.matchTeamLine}>
                     <Text style={styles.matchFlag}>{away?.flag ?? '?'}</Text>
                     <Text style={[styles.matchTeamName, { color: colors.foreground }]} numberOfLines={1}>{away?.name ?? '...'}</Text>
-                    {isPlayed && (
-                      <Text style={[styles.matchGoal, { color: colors.primary }]}>{match.awayGoals}</Text>
-                    )}
+                    {isPlayed && <Text style={[styles.matchGoal, { color: colors.primary }]}>{match.awayGoals}</Text>}
                   </View>
                 </View>
-                {!isPlayed && !isSimulating && (
+                {!isPlayed && matchPhase !== 'live' && (
                   <TouchableOpacity
                     style={[styles.playBtn, { backgroundColor: colors.primary }]}
                     onPress={handlePlayMatch}
@@ -208,18 +221,18 @@ export default function MatchScreen() {
                     <Text style={[styles.playBtnText, { color: colors.primaryForeground }]}>Play</Text>
                   </TouchableOpacity>
                 )}
-                {isActive && isSimulating && (
-                  <View style={[styles.livePill, { backgroundColor: '#FF3B30' }]}>
+                {isActive && matchPhase === 'live' && (
+                  <Animated.View style={[styles.livePill, { backgroundColor: '#FF3B30', opacity: pulseAnim }]}>
                     <Text style={styles.livePillText}>LIVE</Text>
-                  </View>
+                  </Animated.View>
                 )}
               </View>
             );
           })}
         </View>
 
-        {/* Live match simulation card */}
-        {(isSimulating || (activeMatch && !isSimulating)) && (
+        {/* LIVE card — shown ONLY during simulation */}
+        {matchPhase === 'live' && activeMatch && (
           <LiveMatchCard
             match={activeMatch}
             events={visibleEvents}
@@ -227,15 +240,33 @@ export default function MatchScreen() {
             countdown={countdown}
             homeGoals={liveHomeGoals}
             awayGoals={liveAwayGoals}
-            isSimulating={isSimulating}
+            isLive
             getTeam={getTeam}
             getEventIcon={getEventIcon}
             colors={colors}
+            pulseAnim={pulseAnim}
           />
         )}
 
-        {/* Play button (if not simulating and matches remain) */}
-        {!allPlayerMatchesDone && !isSimulating && !activeMatch && (
+        {/* FULL TIME card — shown ONLY after simulation ends */}
+        {matchPhase === 'complete' && activeMatch && (
+          <LiveMatchCard
+            match={activeMatch}
+            events={activeMatch.events}
+            minute={90}
+            countdown={0}
+            homeGoals={activeMatch.homeGoals}
+            awayGoals={activeMatch.awayGoals}
+            isLive={false}
+            getTeam={getTeam}
+            getEventIcon={getEventIcon}
+            colors={colors}
+            pulseAnim={pulseAnim}
+          />
+        )}
+
+        {/* Play Next Match button — shown when idle */}
+        {matchPhase === 'idle' && !allPlayerMatchesDone && (
           <TouchableOpacity
             style={[styles.bigPlayBtn, { backgroundColor: colors.primary }]}
             onPress={handlePlayMatch}
@@ -246,7 +277,7 @@ export default function MatchScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Group A standings */}
+        {/* Group standings */}
         <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Group {GROUP_LETTERS[playerGroupIndex]} Standings</Text>
           <View style={[styles.tableHeader, { borderBottomColor: colors.border }]}>
@@ -260,14 +291,13 @@ export default function MatchScreen() {
           {sortedGroup.map((team, i) => {
             const qualified = i < 2;
             return (
-              <View key={team.id} style={[styles.standingRow, { backgroundColor: qualified ? colors.success + '11' : 'transparent' }]}>
-                <View style={[styles.posDot, { backgroundColor: qualified ? colors.success : 'transparent' }]}>
+              <View key={team.id} style={[styles.standingRow, { backgroundColor: team.isPlayer ? colors.primary + '11' : qualified ? colors.success + '11' : 'transparent' }]}>
+                <View style={[styles.posDot, { backgroundColor: qualified ? (team.isPlayer ? colors.primary : colors.success) : 'transparent' }]}>
                   <Text style={[styles.posNum, { color: qualified ? '#fff' : colors.mutedForeground }]}>{i + 1}</Text>
                 </View>
                 <Text style={styles.teamFlagSm}>{team.flag}</Text>
                 <Text style={[styles.thTeamName, { color: team.isPlayer ? colors.primary : colors.foreground }]} numberOfLines={1}>
-                  {team.name.split(' ').slice(-2).join(' ')}
-                  {team.isPlayer ? ' ★' : ''}
+                  {team.name.split(' ').slice(-2).join(' ')}{team.isPlayer ? ' ★' : ''}
                 </Text>
                 <Text style={[styles.th, { color: colors.mutedForeground }]}>{team.played}</Text>
                 <Text style={[styles.th, { color: colors.foreground }]}>{team.won}</Text>
@@ -275,13 +305,13 @@ export default function MatchScreen() {
                 <Text style={[styles.th, { color: team.gf - team.ga >= 0 ? colors.success : colors.destructive }]}>
                   {team.gf - team.ga > 0 ? `+${team.gf - team.ga}` : team.gf - team.ga}
                 </Text>
-                <Text style={[styles.thPts, { color: colors.primary }]}>{team.points}</Text>
+                <Text style={[styles.thPts, { color: team.isPlayer ? colors.primary : colors.foreground }]}>{team.points}</Text>
               </View>
             );
           })}
         </View>
 
-        {/* View all results toggle */}
+        {/* Toggle all results */}
         <TouchableOpacity
           style={[styles.toggleBtn, { borderColor: colors.border }]}
           onPress={() => setShowAllResults(v => !v)}
@@ -314,7 +344,7 @@ export default function MatchScreen() {
         )}
 
         {/* Advance to knockout */}
-        {allPlayerMatchesDone && !isSimulating && (
+        {allPlayerMatchesDone && matchPhase !== 'live' && (
           <View style={styles.advanceSection}>
             <View style={[styles.doneCard, { backgroundColor: colors.card, borderColor: colors.success }]}>
               <Text style={styles.doneEmoji}>✅</Text>
@@ -327,9 +357,7 @@ export default function MatchScreen() {
               activeOpacity={0.85}
             >
               <Ionicons name="trophy" size={22} color={colors.primaryForeground} />
-              <Text style={[styles.advanceBtnText, { color: colors.primaryForeground }]}>
-                View Standings & Advance
-              </Text>
+              <Text style={[styles.advanceBtnText, { color: colors.primaryForeground }]}>View Standings & Advance</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -338,34 +366,38 @@ export default function MatchScreen() {
   );
 }
 
-function LiveMatchCard({ match, events, minute, countdown, homeGoals, awayGoals, isSimulating, getTeam, getEventIcon, colors }: {
-  match: GroupMatch | null;
+function LiveMatchCard({ match, events, minute, countdown, homeGoals, awayGoals, isLive, getTeam, getEventIcon, colors, pulseAnim }: {
+  match: GroupMatch;
   events: MatchEvent[];
   minute: number;
   countdown: number;
   homeGoals: number;
   awayGoals: number;
-  isSimulating: boolean;
+  isLive: boolean;
   getTeam: (id: string) => GroupTeam | undefined;
   getEventIcon: (type: MatchEvent['type']) => string;
   colors: ReturnType<typeof import('@/hooks/useColors').useColors>;
+  pulseAnim: Animated.Value;
 }) {
-  if (!match) return null;
   const home = getTeam(match.homeTeamId);
   const away = getTeam(match.awayTeamId);
 
   return (
-    <View style={[styles.liveCard, { backgroundColor: colors.card, borderColor: isSimulating ? '#FF3B30' : colors.primary }]}>
-      {/* Live header */}
-      <View style={[styles.liveHeader, { backgroundColor: isSimulating ? '#FF3B30' : colors.success }]}>
-        <Text style={styles.liveHeaderText}>
-          {isSimulating ? `LIVE • ${minute}'` : '⚡ FULL TIME'}
-        </Text>
-        {isSimulating && (
-          <View style={styles.countdownBadge}>
-            <Ionicons name="timer" size={12} color="#fff" />
-            <Text style={styles.countdownText}>{countdown}s</Text>
-          </View>
+    <View style={[styles.liveCard, { backgroundColor: colors.card, borderColor: isLive ? '#FF3B30' : colors.success }]}>
+      {/* Header */}
+      <View style={[styles.liveHeader, { backgroundColor: isLive ? '#FF3B30' : colors.success }]}>
+        {isLive ? (
+          <>
+            <Animated.Text style={[styles.liveHeaderText, { opacity: pulseAnim }]}>
+              LIVE • {minute}'
+            </Animated.Text>
+            <View style={styles.countdownBadge}>
+              <Ionicons name="timer" size={12} color="#fff" />
+              <Text style={styles.countdownText}>{countdown}s</Text>
+            </View>
+          </>
+        ) : (
+          <Text style={styles.liveHeaderText}>⚡ FULL TIME</Text>
         )}
       </View>
 
@@ -393,7 +425,18 @@ function LiveMatchCard({ match, events, minute, countdown, homeGoals, awayGoals,
             <View key={i} style={[styles.tickerRow, { backgroundColor: event.type === 'halftime' || event.type === 'whistle' ? colors.muted + '80' : 'transparent' }]}>
               <Text style={[styles.tickerMin, { color: colors.mutedForeground }]}>{event.minute}'</Text>
               <Text style={styles.tickerIcon}>{getEventIcon(event.type)}</Text>
-              <Text style={[styles.tickerDesc, { color: event.type === 'goal' ? colors.primary : event.type === 'halftime' || event.type === 'whistle' ? colors.foreground : colors.mutedForeground }]} numberOfLines={1}>
+              <Text style={[
+                styles.tickerDesc,
+                {
+                  color: event.type === 'goal'
+                    ? colors.primary
+                    : event.type === 'halftime' || event.type === 'whistle'
+                      ? colors.foreground
+                      : colors.mutedForeground,
+                  fontFamily: event.type === 'goal' ? 'Inter_700Bold' : 'Inter_400Regular',
+                  fontSize: event.type === 'goal' ? 13 : 12,
+                }
+              ]} numberOfLines={1}>
                 {event.description}
               </Text>
             </View>
@@ -412,44 +455,22 @@ const styles = StyleSheet.create({
   subtitle: { fontFamily: 'Inter_400Regular', fontSize: 13 },
   section: { borderWidth: 1, borderRadius: 14, overflow: 'hidden' },
   sectionTitle: { fontFamily: 'Inter_700Bold', fontSize: 15, padding: 12, paddingBottom: 8 },
-
   matchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10 },
-  matchStatus: { width: 24, alignItems: 'center' },
+  matchStatus: { width: 30, alignItems: 'center' },
+  resultBadge: { width: 26, height: 26, borderRadius: 6, justifyContent: 'center', alignItems: 'center' },
+  resultBadgeText: { fontFamily: 'Inter_700Bold', fontSize: 12 },
   matchTeams: { flex: 1, gap: 5 },
   matchTeamLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   matchFlag: { fontSize: 18 },
   matchTeamName: { flex: 1, fontFamily: 'Inter_500Medium', fontSize: 13 },
   matchGoal: { fontFamily: 'Inter_700Bold', fontSize: 16, minWidth: 20, textAlign: 'right' },
-  playBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
+  playBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   playBtnText: { fontFamily: 'Inter_700Bold', fontSize: 12 },
   livePill: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   livePillText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 10, letterSpacing: 1 },
-
-  bigPlayBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 14,
-    gap: 10,
-  },
+  bigPlayBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, borderRadius: 14, gap: 10 },
   bigPlayBtnText: { fontFamily: 'Inter_700Bold', fontSize: 17 },
-
-  tableHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    gap: 2,
-  },
+  tableHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderBottomWidth: 1, gap: 2 },
   thTeam: { flex: 3, fontFamily: 'Inter_600SemiBold', fontSize: 10, letterSpacing: 0.5 },
   th: { width: 22, textAlign: 'center', fontFamily: 'Inter_400Regular', fontSize: 11 },
   thPts: { width: 28, textAlign: 'center', fontFamily: 'Inter_700Bold', fontSize: 12 },
@@ -458,14 +479,11 @@ const styles = StyleSheet.create({
   posNum: { fontFamily: 'Inter_700Bold', fontSize: 10 },
   teamFlagSm: { fontSize: 15 },
   thTeamName: { flex: 3, fontFamily: 'Inter_500Medium', fontSize: 12, marginLeft: 2 },
-
   toggleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 10, borderRadius: 10, borderWidth: 1 },
   toggleText: { fontFamily: 'Inter_500Medium', fontSize: 13 },
-
   allMatchRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8 },
   allMatchName: { flex: 1, fontFamily: 'Inter_500Medium', fontSize: 12 },
   allMatchScore: { fontFamily: 'Inter_700Bold', fontSize: 14, minWidth: 40, textAlign: 'center' },
-
   advanceSection: { gap: 12 },
   doneCard: { alignItems: 'center', padding: 20, borderRadius: 16, borderWidth: 2, gap: 6 },
   doneEmoji: { fontSize: 36 },
@@ -473,7 +491,6 @@ const styles = StyleSheet.create({
   doneSub: { fontFamily: 'Inter_400Regular', fontSize: 13 },
   advanceBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 18, borderRadius: 16, gap: 10 },
   advanceBtnText: { fontFamily: 'Inter_700Bold', fontSize: 17 },
-
   liveCard: { borderWidth: 2, borderRadius: 14, overflow: 'hidden' },
   liveHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 12 },
   liveHeaderText: { fontFamily: 'Inter_700Bold', fontSize: 13, color: '#fff', letterSpacing: 1 },
@@ -490,5 +507,5 @@ const styles = StyleSheet.create({
   tickerRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 4 },
   tickerMin: { fontFamily: 'Inter_600SemiBold', fontSize: 11, width: 26 },
   tickerIcon: { fontSize: 14, width: 18 },
-  tickerDesc: { fontFamily: 'Inter_400Regular', fontSize: 12, flex: 1 },
+  tickerDesc: { flex: 1 },
 });

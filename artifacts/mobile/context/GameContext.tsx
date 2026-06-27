@@ -19,18 +19,20 @@ export interface DraftSlot {
   y: number;
 }
 
+// 4-3-3: bottom→top = GK → DEF → MID → FWD
+// y=0 is top of pitch, y=100 is bottom. GK defends at bottom (high y).
 export const DRAFT_SLOTS: DraftSlot[] = [
-  { id: 'ST', label: 'ST', positionType: 'FWD', x: 45, y: 8 },
-  { id: 'LW', label: 'LW', positionType: 'FWD', x: 12, y: 14 },
-  { id: 'RW', label: 'RW', positionType: 'FWD', x: 78, y: 14 },
-  { id: 'CM1', label: 'CM', positionType: 'MID', x: 22, y: 34 },
-  { id: 'CDM', label: 'CDM', positionType: 'MID', x: 45, y: 42 },
-  { id: 'CM2', label: 'CM', positionType: 'MID', x: 68, y: 34 },
-  { id: 'LB', label: 'LB', positionType: 'DEF', x: 10, y: 60 },
-  { id: 'CB1', label: 'CB', positionType: 'DEF', x: 32, y: 65 },
-  { id: 'CB2', label: 'CB', positionType: 'DEF', x: 58, y: 65 },
-  { id: 'RB', label: 'RB', positionType: 'DEF', x: 80, y: 60 },
-  { id: 'GK', label: 'GK', positionType: 'GK', x: 45, y: 82 },
+  { id: 'LW',  label: 'LW',  positionType: 'FWD', x: 12, y: 12 },
+  { id: 'ST',  label: 'ST',  positionType: 'FWD', x: 50, y: 8  },
+  { id: 'RW',  label: 'RW',  positionType: 'FWD', x: 84, y: 12 },
+  { id: 'CM1', label: 'CM',  positionType: 'MID', x: 18, y: 42 },
+  { id: 'CDM', label: 'CDM', positionType: 'MID', x: 50, y: 50 },
+  { id: 'CM2', label: 'CM',  positionType: 'MID', x: 80, y: 42 },
+  { id: 'LB',  label: 'LB',  positionType: 'DEF', x: 10, y: 66 },
+  { id: 'CB1', label: 'CB',  positionType: 'DEF', x: 33, y: 70 },
+  { id: 'CB2', label: 'CB',  positionType: 'DEF', x: 63, y: 70 },
+  { id: 'RB',  label: 'RB',  positionType: 'DEF', x: 86, y: 66 },
+  { id: 'GK',  label: 'GK',  positionType: 'GK',  x: 50, y: 86 },
 ];
 
 export interface GroupTeam {
@@ -134,6 +136,8 @@ interface GameContextType extends GameState {
   playNextKnockoutMatch: () => KnockoutMatch | null;
   resetGame: () => void;
   generateRoomCode: () => string;
+  playSpecificKnockoutMatch: (round: string, matchIndex: number) => KnockoutMatch | null;
+  getTournamentPosition: () => string;
 }
 
 const GameContext = createContext<GameContextType | null>(null);
@@ -583,6 +587,82 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setState(s => ({ ...defaultState, playerName: s.playerName, myTeamSlots: initialSlots(), opponentTeamSlots: initialSlots() }));
   }, []);
 
+  // Play a specific knockout match by round + matchIndex
+  const playSpecificKnockoutMatch = useCallback((round: string, matchIndex: number): KnockoutMatch | null => {
+    let result: KnockoutMatch | null = null;
+    setState(s => {
+      const allTeams: GroupTeam[] = [
+        ...s.groups.flat(),
+        ...HISTORICAL_TEAMS.map(ht => ({
+          id: ht.id, name: ht.name, nameAr: ht.nameAr, flag: ht.flag, rating: ht.rating,
+          isPlayer: false, isOpponent: false, points: 0, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0,
+        })),
+      ];
+      const getTeam = (id: string) => allTeams.find(t => t.id === id) ?? s.knockoutTeams.find(t => t.id === id);
+
+      const targetIdx = s.knockoutMatches.findIndex(m => m.round === round && m.matchIndex === matchIndex && !m.played);
+      if (targetIdx === -1) return s;
+
+      const match = s.knockoutMatches[targetIdx];
+      const home = getTeam(match.homeTeamId);
+      const away = getTeam(match.awayTeamId);
+      if (!home || !away) return s;
+
+      let { homeGoals, awayGoals } = simulateMatch(home.rating, away.rating);
+      if (homeGoals === awayGoals) { Math.random() < 0.5 ? homeGoals++ : awayGoals++; }
+
+      const homePlayerNames = match.homeTeamId === 'player' ? s.myTeamSlots.filter(sl => sl.player).map(sl => sl.player!.name) : [];
+      const awayPlayerNames = match.awayTeamId === 'player' ? s.myTeamSlots.filter(sl => sl.player).map(sl => sl.player!.name) : [];
+      const events = generateMatchEventsWithNames(match.homeTeamId, match.awayTeamId, homeGoals, awayGoals, home.name, away.name, homePlayerNames, awayPlayerNames);
+
+      const winnerId = homeGoals > awayGoals ? match.homeTeamId : match.awayTeamId;
+      const played: KnockoutMatch = { ...match, homeGoals, awayGoals, played: true, events, winnerId };
+      result = played;
+
+      const newKO = s.knockoutMatches.map((m, i) => i === targetIdx ? played : m);
+      const playedQFs = newKO.filter(m => m.round === 'QF' && m.played);
+      const playedSFs = newKO.filter(m => m.round === 'SF' && m.played);
+
+      let finalMatches = [...newKO];
+      if (playedQFs.length === 4 && !newKO.some(m => m.round === 'SF')) {
+        const qfWinners = playedQFs.map(m => m.winnerId!);
+        finalMatches = [...newKO,
+          { round: 'SF' as const, matchIndex: 0, homeTeamId: qfWinners[0], awayTeamId: qfWinners[1], played: false, events: [] },
+          { round: 'SF' as const, matchIndex: 1, homeTeamId: qfWinners[2], awayTeamId: qfWinners[3], played: false, events: [] },
+        ];
+      }
+      if (playedSFs.length === 2 && !newKO.some(m => m.round === 'F')) {
+        const sfWinners = playedSFs.map(m => m.winnerId!);
+        finalMatches = [...finalMatches,
+          { round: 'F' as const, matchIndex: 0, homeTeamId: sfWinners[0], awayTeamId: sfWinners[1], played: false, events: [] },
+        ];
+      }
+
+      let winner = s.winner;
+      const finalMatch = finalMatches.find(m => m.round === 'F' && m.played);
+      if (finalMatch?.winnerId) {
+        winner = allTeams.find(t => t.id === finalMatch.winnerId) ?? s.knockoutTeams.find(t => t.id === finalMatch.winnerId) ?? null;
+      }
+
+      return { ...s, knockoutMatches: finalMatches, winner };
+    });
+    return result;
+  }, []);
+
+  const getTournamentPosition = useCallback((): string => {
+    if (state.winner?.isPlayer) return '🏆 Champion!';
+    const myTeamId = 'player';
+    const lostIn = state.knockoutMatches.find(m =>
+      m.played && m.winnerId && m.winnerId !== myTeamId &&
+      (m.homeTeamId === myTeamId || m.awayTeamId === myTeamId)
+    );
+    if (!lostIn) return '⚽ Group Stage Exit';
+    if (lostIn.round === 'F') return '🥈 Runner-Up';
+    if (lostIn.round === 'SF') return '🏅 Semi-Finalist';
+    if (lostIn.round === 'QF') return '💪 Quarter-Finalist';
+    return '⚽ Group Stage Exit';
+  }, [state.knockoutMatches, state.winner]);
+
   const value: GameContextType = {
     ...state,
     setPhase, setPlayerName, setGameMode, startGame,
@@ -591,6 +671,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     getCurrentSlotIndex, generateAITeam, setupTournament,
     simulateAllNonPlayerGroupMatches, playNextPlayerGroupMatch, playNextGroupMatch,
     advanceToKnockout, playNextKnockoutMatch, resetGame, generateRoomCode,
+    playSpecificKnockoutMatch, getTournamentPosition,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

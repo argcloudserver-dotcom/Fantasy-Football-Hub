@@ -26,6 +26,7 @@ function RootLayoutNav() {
       <Stack.Screen name="index" />
       <Stack.Screen name="lobby" />
       <Stack.Screen name="draft" />
+      <Stack.Screen name="team" />
       <Stack.Screen name="draw" />
       <Stack.Screen name="match" />
       <Stack.Screen name="standings" />

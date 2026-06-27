@@ -1,0 +1,148 @@
+Fix all bugs and improve the game with the following changes:
+
+---
+
+## BUG FIX 1 — PITCH FORMATION DIRECTION (CRITICAL)
+
+The football pitch is upside down. Fix the player positions so:
+- GK appears at the BOTTOM of the pitch (defending end)
+- DEF line appears just above GK (second row from bottom)
+- MID line appears in the middle
+- FWD line appears at the TOP of the pitch (attacking end)
+
+The pitch should read from bottom to top: GK → DEF → MID → FWD
+This is the standard football formation view.
+
+Also fix slot positions on the pitch for 4-3-3 or 4-2-3-1:
+Bottom row: GK (center)
+Second row: LB — CB — CB — RB
+Third row: CDM — CM — CM (or LM — CM — RM)
+Top row: LW — ST — RW
+
+---
+
+## BUG FIX 2 — FULL SQUAD LIST (CRITICAL)
+
+The squad list is showing only a few players (2, 4, or 10) instead of the full team.
+
+Fix: Every squad must show ALL players available for that national team in the database.
+- Minimum 15 players per squad shown
+- If the database has fewer for that team/year, show all of them
+- Do NOT limit or paginate the list — show everything in one scrollable list
+- Sort order: GK first, then DEF, then MID, then FWD
+- Greyed-out (locked) players = position already filled in user's team
+
+---
+
+## BUG FIX 3 — MATCH DISPLAY: NO OVERLAP (CRITICAL)
+
+Currently the live simulator and the final result show at the same time.
+
+Fix the match flow:
+1. While match is running (0–30s): show ONLY the live match card (LIVE • XX' with ticker)
+2. When match ends: HIDE the live card, show the FULL TIME card with complete event log
+3. The Full Time card replaces the Live card — they should NEVER show simultaneously
+4. After Full Time card appears, update the standings table below it
+
+---
+
+## BUG FIX 4 — MATCH DURATION
+
+Change all match simulations from 30 seconds to exactly 5 seconds.
+- The 30-second countdown must become 5 seconds
+- Events still show minute timestamps (1'–90') but happen within 5 real seconds
+- Timer display should show 5s countdown
+
+---
+
+## NEW FEATURE 1 — PLAYER CARDS IN DRAFT
+
+When viewing the squad list, each player row should show:
+- Rating circle (colored: gold 85+, silver 75–84, bronze below 75)
+- Player name (English + Arabic)
+- Position badge (colored by role: GK=orange, DEF=blue, MID=green, FWD=red)
+- Tournament year badge next to flag
+- Tapping a player shows a quick pop-up card with: name, nationality, year, position, rating, and 1-line bio
+
+---
+
+## NEW FEATURE 2 — TEAM OVERVIEW SCREEN
+
+After finishing the draft (11/11), before entering the tournament:
+Show a "Your Team" summary screen with:
+- Full pitch view with player names visible on the formation (not just ratings)
+- Overall team rating (average of all 11)
+- Best player highlight (highest rated)
+- Weakest position warning (lowest rated slot)
+- Two buttons: "Confirm Team →" and "← Back" (back resets the draft)
+
+---
+
+## NEW FEATURE 3 — KNOCKOUT MATCH WATCHING
+
+In the knockout stages (Quarter-Finals, Semi-Finals, Final):
+- The user can TAP on any match (not just their own) to watch it simulate in 5 seconds
+- Show a "Watch" button next to each fixture
+- Their own match auto-plays — others are tap-to-watch
+- After each round completes, show the bracket updating with winners advancing
+
+---
+
+## NEW FEATURE 4 — RESULT SHARE CARD
+
+After the tournament ends (whether the user wins or loses):
+Show a shareable result card containing:
+- Tournament position (e.g. "🏆 Champion!" or "Quarter-Final Exit")
+- Team name + overall rating
+- Record: W/D/L and goals scored/conceded
+- Best player of the tournament
+- "Share Result" button that copies the text summary to clipboard
+
+---
+
+## UI/UX IMPROVEMENTS
+
+### Draft Screen:
+- Add a "Shuffle Squad" button (the existing one) — make it visually prominent
+- Show a progress bar at the top: "Pick X/11 players"
+- When a position group is complete (e.g. all MIDs filled), show a green checkmark on the MID badge
+- Add subtle animation when a player is selected (slide into the pitch)
+
+### Match Screen:
+- Make the LIVE banner pulse/animate (alternating opacity)
+- Goal events should be bigger text and golden color
+- Add a brief 0.5s pause between events in the ticker for readability
+- Show player names in goal events (already partially done — ensure consistency)
+
+### Group Stage Screen:
+- Show your team highlighted in gold in the standings table
+- Add "GD" (goal difference) column to standings — already there, keep it
+- Show match result badge (W/D/L) colored green/gray/red next to each played match
+
+### Knockout Bracket Screen:
+- Show a visual bracket tree (like a tournament draw)
+- Completed matches show the score
+- Current match is highlighted
+- User's team is always shown in gold
+
+### General:
+- Add smooth screen transitions (fade or slide)
+- Improve empty states — if no data loads, show a friendly message
+- Add a "How to Play" button on the home screen with a quick 3-step tutorial overlay
+- Make all Arabic text right-aligned (RTL)
+- Ensure all screens are scrollable if content overflows
+
+---
+
+## DATA FIX — SQUAD COMPLETENESS
+
+Ensure the player database has at least 15–23 players per national team per year.
+For any team with fewer than 15 players, generate realistic placeholder players with:
+- Historically accurate names for that nation/era
+- Correct positions to fill gaps
+- Ratings between 70–85 for non-star players
+
+Priority teams to have full squads:
+Brazil 1970, Argentina 1986, Germany 1974, France 1998, Italy 2006,
+Spain 2010, Germany 2014, France 2018, Argentina 2022, Morocco 2022,
+Brazil 2002, Netherlands 1974, England 1966, Uruguay 1950, Hungary 1954

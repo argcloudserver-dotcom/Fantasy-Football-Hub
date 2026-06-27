@@ -8,11 +8,14 @@ interface PitchViewProps {
   activeSlotId?: string;
   onSlotPress?: (slot: DraftSlot) => void;
   compact?: boolean;
+  showNames?: boolean;
 }
 
-export function PitchView({ slots, activeSlotId, onSlotPress, compact = false }: PitchViewProps) {
+export function PitchView({ slots, activeSlotId, onSlotPress, compact = false, showNames = false }: PitchViewProps) {
   const colors = useColors();
   const pitchHeight = compact ? 220 : 340;
+  const bubbleSize = compact ? 34 : 44;
+  const offset = bubbleSize / 2;
 
   return (
     <View style={[styles.pitchContainer, { height: pitchHeight, backgroundColor: colors.pitch }]}>
@@ -21,6 +24,8 @@ export function PitchView({ slots, activeSlotId, onSlotPress, compact = false }:
       <View style={[styles.centerLine, { backgroundColor: colors.pitchLine }]} />
       <View style={[styles.penaltyAreaTop, { borderColor: colors.pitchLine }]} />
       <View style={[styles.penaltyAreaBottom, { borderColor: colors.pitchLine }]} />
+      {/* Center dot */}
+      <View style={[styles.centerDot, { backgroundColor: colors.pitchLine }]} />
 
       {/* Player slots */}
       {slots.map(slot => {
@@ -35,6 +40,7 @@ export function PitchView({ slots, activeSlotId, onSlotPress, compact = false }:
               {
                 left: `${slot.x}%` as any,
                 top: `${slot.y}%` as any,
+                transform: [{ translateX: -offset }, { translateY: -offset }],
               }
             ]}
             onPress={() => onSlotPress?.(slot)}
@@ -54,9 +60,9 @@ export function PitchView({ slots, activeSlotId, onSlotPress, compact = false }:
                     ? colors.goldDark
                     : 'rgba(255,255,255,0.4)',
                 borderWidth: isActive ? 2.5 : 1.5,
-                width: compact ? 34 : 44,
-                height: compact ? 34 : 44,
-                borderRadius: compact ? 17 : 22,
+                width: bubbleSize,
+                height: bubbleSize,
+                borderRadius: bubbleSize / 2,
               }
             ]}>
               {hasPlayer ? (
@@ -69,13 +75,17 @@ export function PitchView({ slots, activeSlotId, onSlotPress, compact = false }:
                 </Text>
               )}
             </View>
-            {hasPlayer && !compact && (
+            {/* Name below bubble */}
+            {hasPlayer && (showNames || !compact) && (
               <View style={styles.playerNameContainer}>
-                <Text style={styles.playerName} numberOfLines={1}>
+                <Text style={[styles.playerName, { fontSize: compact ? 7 : 9 }]} numberOfLines={1}>
                   {slot.player!.name.split(' ').slice(-1)[0]}
                 </Text>
-                <Text style={styles.playerFlag}>{slot.player!.flag}</Text>
               </View>
+            )}
+            {/* Flag tag */}
+            {hasPlayer && !compact && (
+              <Text style={styles.playerFlag}>{slot.player!.flag}</Text>
             )}
             {!hasPlayer && isActive && (
               <View style={[styles.pulseDot, { backgroundColor: colors.primary }]} />
@@ -100,44 +110,54 @@ const styles = StyleSheet.create({
     right: 0,
     height: 1.5,
     top: '50%',
-    opacity: 0.4,
+    opacity: 0.35,
   },
   centerCircle: {
     position: 'absolute',
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     borderWidth: 1.5,
     top: '50%',
     left: '50%',
-    marginLeft: -35,
-    marginTop: -35,
-    opacity: 0.4,
+    marginLeft: -32,
+    marginTop: -32,
+    opacity: 0.35,
+  },
+  centerDot: {
+    position: 'absolute',
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    top: '50%',
+    left: '50%',
+    marginLeft: -2.5,
+    marginTop: -2.5,
+    opacity: 0.5,
   },
   penaltyAreaTop: {
     position: 'absolute',
-    width: '50%',
-    height: '18%',
+    width: '45%',
+    height: '16%',
     top: 0,
-    left: '25%',
+    left: '27.5%',
     borderWidth: 1.5,
     borderTopWidth: 0,
-    opacity: 0.4,
+    opacity: 0.35,
   },
   penaltyAreaBottom: {
     position: 'absolute',
-    width: '50%',
-    height: '18%',
+    width: '45%',
+    height: '16%',
     bottom: 0,
-    left: '25%',
+    left: '27.5%',
     borderWidth: 1.5,
     borderBottomWidth: 0,
-    opacity: 0.4,
+    opacity: 0.35,
   },
   slotContainer: {
     position: 'absolute',
     alignItems: 'center',
-    transform: [{ translateX: -22 }, { translateY: -22 }],
   },
   playerBubble: {
     justifyContent: 'center',
@@ -153,23 +173,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   playerNameContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
     marginTop: 2,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 4,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingHorizontal: 3,
     paddingVertical: 1,
-    borderRadius: 4,
+    borderRadius: 3,
+    maxWidth: 52,
   },
   playerName: {
     color: '#FFFFFF',
-    fontSize: 9,
     fontFamily: 'Inter_600SemiBold',
-    maxWidth: 50,
+    textAlign: 'center',
   },
   playerFlag: {
-    fontSize: 9,
+    fontSize: 8,
+    marginTop: 1,
   },
   pulseDot: {
     width: 6,
